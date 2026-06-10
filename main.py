@@ -25,7 +25,7 @@ class ColumnInfo:
 
 
 @dataclass
-class ForeignKeyConfig:
+class LogicalRelationConfig:
     child_fields: tuple[str, ...]
     parent_table: str
     parent_fields: tuple[str, ...]
@@ -59,7 +59,7 @@ class EntityConfig:
     primary_key: tuple[str, ...] = field(default_factory=tuple)
     key_policy: KeyPolicy = field(default_factory=KeyPolicy)
     rowkey: RowKeyConfig | None = None
-    foreign_keys: list[ForeignKeyConfig] = field(default_factory=list)
+    logical_relations: list[LogicalRelationConfig] = field(default_factory=list)
     sensitive_fields: list[str] = field(default_factory=list)
 
 
@@ -199,28 +199,44 @@ def read_config_file(path: Path) -> EntityConfig:
                 entity_value=parser.get("rowkey", "entity_value", fallback=table),
                 key_field=parser.get("rowkey", "key_field", fallback=None),
             )
-        fks = []
-        if parser.has_section("foreign_keys"):
-            # Interpretação de FKs: campos locais à esquerda e tabela.campos do pai à direita.
-            for left, right in parser.items("foreign_keys"):
+        relations = []
+        relation_sections = [section for section in ("logical_relations", "foreign_keys") if parser.has_section(section)]
+        for section in relation_sections:
+            # Interpretação de relacionamentos lógicos: campos locais à esquerda e tabela.campos do destino à direita.
+            for left, right in parser.items(section):
                 child_fields = split_csv(left)
                 parent_table, parent_fields_raw = right.split(".", 1)
-                fks.append(ForeignKeyConfig(child_fields, parent_table.strip(), split_csv(parent_fields_raw)))
+                relations.append(LogicalRelationConfig(child_fields, parent_table.strip(), split_csv(parent_fields_raw)))
         sensitive = []
         if parser.has_section("sensitive_fields"):
             sensitive = [k.strip() for k, _ in parser.items("sensitive_fields") if k.strip()]
-        return EntityConfig(path, entity, table, pk, key_policy, rowkey, fks, sensitive)
+        return EntityConfig(path, entity, table, pk, key_policy, rowkey, relations, sensitive)
 
     fields = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     return EntityConfig(path, entity, f"tblvp{entity}", sensitive_fields=fields)
+
+
+def is_entity_config_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    name = path.name.lower()
+    stem = path.stem.lower()
+    if name.startswith(".") or stem == "cleartables":
+        return False
+    return True
 
 
 def load_entity_configs(sensitive_dir: Path, log: SafeLogger) -> list[EntityConfig]:
     if not sensitive_dir.exists():
         log.warning("Pasta de configurações não encontrada: %s", sensitive_dir)
         return []
-    configs = [read_config_file(p) for p in sorted(sensitive_dir.glob("*.txt")) if p.stem.lower() != "cleartables"]
-    log.info("Arquivos de configuração lidos: %d", len(configs))
+    config_files = sorted(p for p in sensitive_dir.iterdir() if is_entity_config_file(p))
+    configs = [read_config_file(p) for p in config_files]
+    log.info(
+        "Arquivos de configuração lidos: %d (%s)",
+        len(configs),
+        ", ".join(p.name for p in config_files) if config_files else "nenhum",
+    )
     return configs
 
 
@@ -275,23 +291,23 @@ def validate_configs(conn: sqlite3.Connection, configs: list[EntityConfig], stri
                 log.error(msg) if strict else log.warning(msg)
                 if strict:
                     raise CriticalError(msg)
-        for fk in cfg.foreign_keys:
-            for child in fk.child_fields:
+        for rel in cfg.logical_relations:
+            for child in rel.child_fields:
                 if child.lower() not in cols:
-                    msg = f"Campo de FK inexistente: {cfg.table}.{child}"
+                    msg = f"Campo de relacionamento lógico inexistente: {cfg.table}.{child}"
                     log.error(msg) if strict else log.warning(msg)
                     if strict:
                         raise CriticalError(msg)
-            if not table_exists(conn, fk.parent_table):
-                msg = f"Tabela pai de FK inexistente: {fk.parent_table}"
+            if not table_exists(conn, rel.parent_table):
+                msg = f"Tabela de relacionamento lógico inexistente: {rel.parent_table}"
                 log.error(msg) if strict else log.warning(msg)
                 if strict:
                     raise CriticalError(msg)
                 continue
-            parent_cols = get_columns(conn, fk.parent_table)
-            for parent in fk.parent_fields:
+            parent_cols = get_columns(conn, rel.parent_table)
+            for parent in rel.parent_fields:
                 if parent.lower() not in parent_cols:
-                    msg = f"Campo pai de FK inexistente: {fk.parent_table}.{parent}"
+                    msg = f"Campo de destino do relacionamento lógico inexistente: {rel.parent_table}.{parent}"
                     log.error(msg) if strict else log.warning(msg)
                     if strict:
                         raise CriticalError(msg)
@@ -299,7 +315,7 @@ def validate_configs(conn: sqlite3.Connection, configs: list[EntityConfig], stri
 
 def topo_sort(configs: list[EntityConfig], log: SafeLogger) -> list[EntityConfig]:
     by_table = {c.table: c for c in configs}
-    deps = {c.table: {fk.parent_table for fk in c.foreign_keys if fk.parent_table in by_table} for c in configs}
+    deps = {c.table: {rel.parent_table for rel in c.logical_relations if rel.parent_table in by_table} for c in configs}
     reverse: dict[str, set[str]] = defaultdict(set)
     for table, parents in deps.items():
         for parent in parents:
@@ -359,16 +375,10 @@ def cnpj_digits(base_num: int) -> str:
     return "".join(map(str, nums))
 
 
-def friendly_entity(entity: str) -> str:
-    known = {
-        "cliente": "Cliente", "empresa": "Empresa", "representante": "Representante", "produto": "Produto",
-        "tabelapreco": "Tabela de Preço", "pedido": "Pedido", "notafiscal": "Nota Fiscal",
-        "condicaopagamento": "Condição de Pagamento", "fornecedor": "Fornecedor",
-    }
-    if entity in known:
-        return known[entity]
-    words = re.sub(r"([a-z])([A-Z])", r"\1 \2", entity).replace("_", " ")
-    return words.title() if words else "Entidade"
+def entity_label(entity: str) -> str:
+    words = re.sub(r"([a-z])([A-Z])", r"\1 \2", entity).replace("_", " ").replace("-", " ")
+    words = re.sub(r"(?<=[a-z])(?=pagamento|preco|preço|fiscal)", " ", words, flags=re.I)
+    return words.title() if words.strip() else "Entidade"
 
 
 def infer_kind(field: str, entity: str, original: Any) -> str:
@@ -433,7 +443,7 @@ def synthetic_value(seed: str, cfg: EntityConfig, field: str, key: tuple[Any, ..
         return stable_int(seed, (cfg.table, field, *key), 1, 999999)
     seq = stable_int(seed, (cfg.table, *key), 1, 999999)
     kind = infer_kind(field, cfg.entity_name, original)
-    base = friendly_entity(cfg.entity_name)
+    base = entity_label(cfg.entity_name)
     slug = re.sub(r"[^a-z0-9]", "", cfg.entity_name.lower()) or "demo"
     if kind == "email":
         value = f"{slug}{seq:06d}@demo.local"
@@ -473,7 +483,7 @@ def synthetic_value(seed: str, cfg: EntityConfig, field: str, key: tuple[Any, ..
 
 
 def where_clause(fields: tuple[str, ...]) -> str:
-    return " AND ".join([f"rowid = ?" if f == "rowid" else f"{quote_ident(f)} IS ?" for f in fields])
+    return " AND ".join(["rowid = ?" if f == "rowid" else f"{quote_ident(f)} IS ?" for f in fields])
 
 
 def select_key_expr(fields: tuple[str, ...]) -> str:
@@ -512,21 +522,21 @@ def regenerate_keys(conn: sqlite3.Connection, cfg: EntityConfig, seed: str, dry_
 
 def propagate_keys(conn: sqlite3.Connection, configs: list[EntityConfig], key_maps: dict[str, dict[tuple[Any, ...], tuple[Any, ...]]], dry_run: bool, log: SafeLogger) -> None:
     for cfg in configs:
-        for fk in cfg.foreign_keys:
-            mapping = key_maps.get(fk.parent_table)
+        for rel in cfg.logical_relations:
+            mapping = key_maps.get(rel.parent_table)
             if not mapping:
                 continue
-            parent_cfg_pk = next((c.primary_key for c in configs if c.table == fk.parent_table), fk.parent_fields)
+            parent_cfg_pk = next((c.primary_key for c in configs if c.table == rel.parent_table), rel.parent_fields)
             for old_parent_key, new_parent_key in mapping.items():
                 old_parent_lookup = dict(zip(parent_cfg_pk, old_parent_key))
                 new_parent_lookup = dict(zip(parent_cfg_pk, new_parent_key))
-                old_child_vals = [old_parent_lookup[p] for p in fk.parent_fields]
-                new_child_vals = [new_parent_lookup[p] for p in fk.parent_fields]
-                sets = ", ".join(f"{quote_ident(f)} = ?" for f in fk.child_fields)
-                wh = " AND ".join(f"{quote_ident(f)} IS ?" for f in fk.child_fields)
+                old_child_vals = [old_parent_lookup[p] for p in rel.parent_fields]
+                new_child_vals = [new_parent_lookup[p] for p in rel.parent_fields]
+                sets = ", ".join(f"{quote_ident(f)} = ?" for f in rel.child_fields)
+                wh = " AND ".join(f"{quote_ident(f)} IS ?" for f in rel.child_fields)
                 if not dry_run:
                     conn.execute(f"UPDATE {quote_ident(cfg.table)} SET {sets} WHERE {wh}", [*new_child_vals, *old_child_vals])
-            log.info("FK atualizada: %s -> %s (%d mapas)", cfg.table, fk.parent_table, len(mapping))
+            log.info("Relacionamento lógico atualizado: %s -> %s (%d mapas)", cfg.table, rel.parent_table, len(mapping))
 
 
 def anonymize_table(conn: sqlite3.Connection, cfg: EntityConfig, seed: str, dry_run: bool, log: SafeLogger) -> None:
@@ -599,25 +609,25 @@ def clear_tables(conn: sqlite3.Connection, tables: list[str], dry_run: bool, str
         log.info("Tabela limpa: %s (%d registros)", table, total)
 
 
-def validate_foreign_keys(conn: sqlite3.Connection, configs: list[EntityConfig], strict: bool, log: SafeLogger) -> int:
-    # Validação de integridade: confere as FKs configuradas após propagação de chaves.
+def validate_logical_relations(conn: sqlite3.Connection, configs: list[EntityConfig], strict: bool, log: SafeLogger) -> int:
+    # Validação opcional: confere relacionamentos lógicos configurados após propagação de chaves.
     issues = 0
     for cfg in configs:
         if not table_exists(conn, cfg.table):
             continue
-        for fk in cfg.foreign_keys:
-            if not table_exists(conn, fk.parent_table):
+        for rel in cfg.logical_relations:
+            if not table_exists(conn, rel.parent_table):
                 continue
-            child_cols = " AND ".join([f"c.{quote_ident(c)} IS p.{quote_ident(p)}" for c, p in zip(fk.child_fields, fk.parent_fields)])
-            non_null = " AND ".join([f"c.{quote_ident(c)} IS NOT NULL" for c in fk.child_fields])
-            sql = f"SELECT COUNT(*) FROM {quote_ident(cfg.table)} c WHERE {non_null} AND NOT EXISTS (SELECT 1 FROM {quote_ident(fk.parent_table)} p WHERE {child_cols})"
+            child_cols = " AND ".join([f"c.{quote_ident(c)} IS p.{quote_ident(p)}" for c, p in zip(rel.child_fields, rel.parent_fields)])
+            non_null = " AND ".join([f"c.{quote_ident(c)} IS NOT NULL" for c in rel.child_fields])
+            sql = f"SELECT COUNT(*) FROM {quote_ident(cfg.table)} c WHERE {non_null} AND NOT EXISTS (SELECT 1 FROM {quote_ident(rel.parent_table)} p WHERE {child_cols})"
             count = conn.execute(sql).fetchone()[0]
             if count:
                 issues += count
-                msg = f"FK inconsistente: {cfg.table} -> {fk.parent_table}: {count} registros órfãos"
+                msg = f"Relacionamento lógico inconsistente: {cfg.table} -> {rel.parent_table}: {count} registros sem destino"
                 log.error(msg) if strict else log.warning(msg)
     if strict and issues:
-        raise CriticalError(f"Integridade referencial inválida: {issues} inconsistências")
+        raise CriticalError(f"Relacionamentos lógicos inválidos: {issues} inconsistências")
     return issues
 
 
@@ -664,7 +674,11 @@ def process_database(args: argparse.Namespace, log: SafeLogger) -> int:
             anonymize_table(conn, cfg, seed, args.dry_run, log)
         for cfg in ordered:
             recalc_rowkeys(conn, cfg, args.dry_run, log)
-        fk_issues = validate_foreign_keys(conn, ordered, args.strict, log)
+        if args.validate_relations:
+            relation_issues = validate_logical_relations(conn, ordered, args.strict, log)
+        else:
+            relation_issues = 0
+            log.info("Validação de relacionamentos lógicos não solicitada; use --validate-relations para conferir órfãos.")
         if args.dry_run:
             rowkey_issues = 0
             log.info("Validação de rowkey simulada em dry-run; alterações não foram persistidas para comparação física.")
@@ -677,9 +691,9 @@ def process_database(args: argparse.Namespace, log: SafeLogger) -> int:
         else:
             conn.commit()
             log.info("Transação confirmada.")
-        log.info("Relatório final: entidades=%d tabelas_limpas=%d avisos=%d erros=%d fk_issues=%d rowkey_issues=%d", len(configs), len(clear_list), len(log.warnings), len(log.errors), fk_issues, rowkey_issues)
+        log.info("Relatório final: entidades=%d tabelas_limpas=%d avisos=%d erros=%d relation_issues=%d rowkey_issues=%d", len(configs), len(clear_list), len(log.warnings), len(log.errors), relation_issues, rowkey_issues)
         print(f"Base de saída: {out_db}")
-        print(f"Log: logs/anonimizacao.log")
+        print("Log: logs/anonimizacao.log")
         return 0 if not log.errors else 2
     except Exception as exc:
         conn.rollback()
@@ -699,7 +713,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", help="Seed para geração determinística")
     parser.add_argument("--verbose", action="store_true", help="Exibe logs detalhados")
     parser.add_argument("--key-mode", choices=["preserve", "regenerate"], help="Sobrescreve a política de chave das entidades")
-    parser.add_argument("--strict", action="store_true", help="Falha em configurações inválidas e inconsistências")
+    parser.add_argument("--strict", action="store_true", help="Falha em configurações inválidas, rowkeys divergentes e, se solicitado, relacionamentos inconsistentes")
+    parser.add_argument("--validate-relations", action="store_true", help="Valida órfãos nos relacionamentos lógicos configurados")
     return parser
 
 
