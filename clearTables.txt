@@ -1,0 +1,6 @@
+# Tabelas de logs, anexos, históricos e textos livres que não devem ir para demonstração.
+tblvplogintegracao
+tblvphistoricoalteracao
+tblvpanexo
+tblvpobservacao
+tblvplogerro
