@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""Sanitizador de bases SQLite para demonstrações comerciais.
-
-A ferramenta copia uma base real para ``output/`` e aplica, somente na cópia,
-sanitarização configurável por entidade, limpeza de tabelas, recálculo de
-rowkey e validações de integridade referencial.
-"""
 from __future__ import annotations
 
 import argparse
