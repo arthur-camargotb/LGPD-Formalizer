@@ -8,7 +8,7 @@ A ferramenta foi pensada para bases relacionais SQLite usadas por aplicações c
 
 ## 2. Aviso sobre LGPD
 
-A ferramenta aplica medidas técnicas compatíveis com boas práticas de anonimização/pseudonimização: substitui campos configurados por dados sintéticos irreversíveis, recalcula `rowkey`, limpa tabelas configuradas e valida relacionamentos declarados.
+A ferramenta aplica medidas técnicas compatíveis com boas práticas de anonimização/pseudonimização: substitui campos configurados por dados sintéticos irreversíveis, recalcula `rowkey`, limpa tabelas configuradas e, somente quando solicitado, valida relacionamentos lógicos declarados.
 
 A validação jurídica final, porém, depende do **controlador**, **DPO** ou **jurídico** da empresa. Dados anonimizados não devem permitir identificação direta ou indireta do titular. Se códigos técnicos preservados ainda permitirem associação interna com a base original ou com tabelas de correspondência, a base pode ser considerada **pseudonimizada** no ambiente interno, e não necessariamente anonimizada de forma absoluta.
 
@@ -18,7 +18,7 @@ Prioridade prática da ferramenta:
 2. remover dados reais visíveis;
 3. substituir dados pessoais e identificáveis por dados sintéticos coerentes;
 4. limpar logs, históricos, anexos e observações sensíveis;
-5. validar `rowkey` e relacionamentos;
+5. validar `rowkey` e, quando solicitado, relacionamentos lógicos;
 6. documentar claramente limites técnicos e LGPD.
 
 ## 3. Cenário de uso
@@ -44,7 +44,9 @@ LGPD-Formalizer/
 │   ├── empresa.txt
 │   ├── representante.txt
 │   ├── produto.txt
-│   └── tabelapreco.txt
+│   ├── tabelapreco.txt
+│   ├── condicaopagamento
+│   └── tipopagamento
 ├── clearTables.txt
 ├── output/
 │   └── .gitkeep
@@ -76,12 +78,14 @@ A base original nunca é aberta para escrita. O script cria uma cópia em `outpu
 
 ## 6. Como configurar uma entidade
 
-Cada arquivo `.txt` dentro de `arquivos_sensiveis/` representa uma entidade. Por padrão, o nome do arquivo vira nome da tabela com prefixo `tblvp`:
+Cada arquivo regular dentro de `arquivos_sensiveis/` representa uma entidade. A extensão `.txt` é opcional; arquivos sem extensão, como `condicaopagamento` e `tipopagamento`, também são lidos. Por padrão, o nome do arquivo vira nome da tabela com prefixo `tblvp`:
 
 ```text
-cliente.txt       -> tblvpcliente
-empresa.txt       -> tblvpempresa
-representante.txt -> tblvprepresentante
+cliente.txt          -> tblvpcliente
+empresa.txt          -> tblvpempresa
+representante.txt    -> tblvprepresentante
+condicaopagamento    -> tblvpcondicaopagamento
+tipopagamento        -> tblvptipopagamento
 ```
 
 Se necessário, informe explicitamente o nome da tabela na seção `[table]`.
@@ -106,7 +110,7 @@ fields=cdempresa,cdcliente
 separator=;
 trailing_separator=true
 
-[foreign_keys]
+[logical_relations]
 cdempresa=tblvpempresa.cdempresa
 cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
 
@@ -139,19 +143,19 @@ fields=cdempresa,cdcliente
 
 A chave primária é usada para identificar registros, gerar dados determinísticos, recalcular `rowkey` e montar mapas de chave quando houver regeneração. Se a seção não for informada, o script tenta detectar a PK com `PRAGMA table_info`; se não houver PK, usa `rowid`.
 
-## 9. Chaves estrangeiras
+## 9. Relacionamentos lógicos
 
-Declare relacionamentos na seção `[foreign_keys]`:
+O sistema não depende de constraints de FK no SQLite. Se existirem ligações entre tabelas, declare-as como relacionamentos lógicos na seção `[logical_relations]`:
 
 ```ini
-[foreign_keys]
+[logical_relations]
 cdempresa=tblvpempresa.cdempresa
 cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
 ```
 
-A tabela do arquivo é a filha; a tabela à direita é a pai. O script valida se os campos existem nos dois lados, usa as dependências para ordenar o processamento e valida órfãos ao final.
+A tabela do arquivo é a origem da ligação lógica; a tabela à direita é o destino. O script valida se os campos configurados existem nos dois lados e usa as dependências apenas para ordenar o processamento. A validação de registros sem destino não roda por padrão; use `--validate-relations` quando quiser conferir órfãos.
 
-Se uma tabela pai tiver chaves regeneradas, o mapa de chave antiga -> nova é usado para atualizar FKs configuradas nas filhas. Alterar chaves é uma operação crítica; por padrão, use `mode=preserve`.
+A seção antiga `[foreign_keys]` continua aceita por compatibilidade, mas a nomenclatura recomendada é `[logical_relations]`, porque não é necessário existir FK real no banco. Se uma tabela de destino tiver chaves regeneradas, o mapa de chave antiga -> nova é usado para atualizar as ligações configuradas. Alterar chaves é uma operação crítica; por padrão, use `mode=preserve`.
 
 ## 10. Rowkey
 
@@ -227,7 +231,8 @@ Argumentos úteis:
 | `--clear-file` | Arquivo com tabelas a limpar. Padrão: `clearTables.txt`. |
 | `--dry-run` | Simula o processo e descarta alterações. |
 | `--seed` | Garante geração determinística para mesma base/configuração. |
-| `--strict` | Interrompe em tabela/campo inválido, FK órfã ou rowkey divergente. |
+| `--strict` | Interrompe em tabela/campo inválido, rowkey divergente e, junto com `--validate-relations`, relacionamento sem destino. |
+| `--validate-relations` | Valida órfãos nos relacionamentos lógicos configurados. Não é habilitado por padrão. |
 | `--key-mode` | Sobrescreve a política de chave; use com extrema cautela. |
 
 ## 13. Logs
@@ -238,17 +243,17 @@ Os logs ficam em:
 logs/anonimizacao.log
 ```
 
-O log registra início, base usada, cópia criada, configurações lidas, entidades processadas, campos anonimizados, tabelas limpas, chaves preservadas/regeneradas, FKs atualizadas, rowkeys recalculadas, avisos e erros.
+O log registra início, base usada, cópia criada, configurações lidas, entidades processadas, campos anonimizados, tabelas limpas, chaves preservadas/regeneradas, relacionamentos lógicos atualizados, rowkeys recalculadas, avisos e erros.
 
 O log não registra valores reais de campos sensíveis.
 
 ## 14. Como adicionar nova tabela
 
-1. Crie `arquivos_sensiveis/novaentidade.txt`.
+1. Crie `arquivos_sensiveis/novaentidade` ou `arquivos_sensiveis/novaentidade.txt`.
 2. Configure `[table]` ou use o padrão `tblvpnovaentidade`.
 3. Configure `[primary_key]`.
 4. Configure `[rowkey]`, se existir.
-5. Configure `[foreign_keys]`, se houver.
+5. Configure `[logical_relations]`, se houver ligações lógicas entre tabelas.
 6. Liste todos os campos sensíveis/visíveis em `[sensitive_fields]`.
 7. Rode `python main.py --dry-run --strict`.
 8. Valide `logs/anonimizacao.log`.
@@ -278,7 +283,7 @@ FROM tblvpcliente
 WHERE rowkey <> CAST(cdempresa AS TEXT) || ';' || CAST(cdcliente AS TEXT) || ';';
 ```
 
-Validar FK configurada:
+Validar relacionamento lógico configurado:
 
 ```sql
 SELECT COUNT(*) AS orfaos
@@ -313,7 +318,7 @@ SELECT COUNT(*) FROM tblvpanexo;
 - Tabelas de log foram limpas?
 - Tabelas de anexo foram limpas, se aplicável?
 - `rowkey` foi recalculada?
-- FKs foram validadas?
+- Relacionamentos lógicos foram validados, se você executou com `--validate-relations`?
 - O aplicativo abriu corretamente com a base demo?
 - Nenhum relatório/exportação mostra dados reais?
 - O prospect não terá acesso ao banco, aplicação instalada, logs, relatórios, dumps ou exportações?
@@ -322,14 +327,14 @@ SELECT COUNT(*) FROM tblvpanexo;
 
 - `locate_database`: localiza e valida a base SQLite original.
 - `prepare_working_copy`: copia a base para `output/` antes de qualquer alteração.
-- `load_entity_configs`: lê dinamicamente `arquivos_sensiveis/*.txt`.
-- `validate_configs`: valida tabelas, colunas, PKs, FKs e rowkeys configuradas.
+- `load_entity_configs`: lê dinamicamente todos os arquivos regulares em `arquivos_sensiveis/`, inclusive sem extensão.
+- `validate_configs`: valida tabelas, colunas, PKs, relacionamentos lógicos e rowkeys configuradas.
 - `topo_sort`: ordena entidades por dependência declarada.
 - `synthetic_value`: gera valores coerentes por tipo de campo e entidade.
-- `regenerate_keys` e `propagate_keys`: tratam regeneração excepcional de chaves e atualização de filhas.
+- `regenerate_keys` e `propagate_keys`: tratam regeneração excepcional de chaves e atualização das ligações lógicas configuradas.
 - `anonymize_table`: anonimiza somente campos configurados.
 - `recalc_rowkeys`: recalcula rowkeys com os valores atuais.
-- `validate_foreign_keys` e `validate_rowkeys`: validam a base final.
+- `validate_logical_relations` e `validate_rowkeys`: validam a base final quando essas conferências são solicitadas/aplicáveis.
 
 ## Dados sintéticos gerados
 
@@ -340,7 +345,7 @@ A ferramenta gera, sem dependências externas:
 - e-mails `@demo.local`;
 - telefones/celulares brasileiros fictícios;
 - CEPs fictícios válidos;
-- nomes coerentes por entidade, como `Cliente Demo 000001`;
+- textos sintéticos derivados dinamicamente do nome da entidade configurada, sem depender de uma lista fixa de entidades;
 - endereços e observações fictícias.
 
 A geração é determinística quando `--seed` é informado.
@@ -350,7 +355,7 @@ A geração é determinística quando `--seed` é informado.
 - A ferramenta anonimiza apenas campos configurados; campos visíveis esquecidos na configuração podem permanecer reais.
 - A validação LGPD final não é automática e deve envolver controlador, DPO ou jurídico.
 - Regenerar chaves pode conflitar com constraints, triggers e dependências não declaradas; prefira `mode=preserve`.
-- FKs só são propagadas/validadas quando declaradas nos arquivos de configuração.
+- Relacionamentos lógicos só são propagados quando declarados nos arquivos de configuração e só são validados contra órfãos com `--validate-relations`.
 - Rowkey externa depende de configuração compatível com a estrutura real.
 - A ferramenta não altera schema, índices, triggers ou tipos de coluna.
 
