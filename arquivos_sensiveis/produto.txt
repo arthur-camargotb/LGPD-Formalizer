@@ -2,23 +2,17 @@
 name=tblvpproduto
 
 [primary_key]
-fields=cdempresa,cdproduto
+fields=cdempresa,cdrepresentante,cdproduto
 
 [key_policy]
 mode=preserve
 
 [rowkey]
 target=rowkey
-fields=cdempresa,cdproduto
+fields=cdempresa,cdrepresentante,cdproduto
 separator=;
 trailing_separator=true
 
-[foreign_keys]
-cdempresa=tblvpempresa.cdempresa
-
 [sensitive_fields]
-nmproduto
 dsproduto
-dsdescricao
-dsmarca
-dsobservacao
+

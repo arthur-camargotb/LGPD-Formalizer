@@ -1,0 +1,17 @@
+[table]
+name=tblvptipopagamento
+
+[primary_key]
+fields=cdempresa,cdrepresentante,cdtipopagamento
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdrepresentante,cdtipopagamento
+separator=;
+trailing_separator=true
+
+[sensitive_fields]
+dstipopagamento

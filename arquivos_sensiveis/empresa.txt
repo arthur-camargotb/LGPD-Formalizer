@@ -14,16 +14,15 @@ separator=;
 trailing_separator=true
 
 [sensitive_fields]
+cdempresa
 nmempresa
-nmfantasia
-nucnpj
-dsemail
-nufone
+nmempresacurto
 dslogradouro
-nulogradouro
 dsbairro
 dscep
-dscidade
-cdestado
+dscidade 
 dsestado
-dsobservacao
+nufone
+nucnpj
+nuinscricaoestadual
+nulogradouro

@@ -4,3 +4,6 @@ tblvphistoricoalteracao
 tblvpanexo
 tblvpobservacao
 tblvplogerro
+tblvppedido
+tblvpitempedido
+tblvpnovocliente

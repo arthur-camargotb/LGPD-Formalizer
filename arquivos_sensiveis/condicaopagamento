@@ -1,0 +1,17 @@
+[table]
+name=tblvpcondicaopagamento
+
+[primary_key]
+fields=cdempresa,cdrepresentante,cdcondicaopagamento
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdrepresentante,cdcondicaopagamento
+separator=;
+trailing_separator=true
+
+[sensitive_fields]
+dscondicaopagamento

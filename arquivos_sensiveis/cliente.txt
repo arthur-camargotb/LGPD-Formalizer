@@ -13,11 +13,6 @@ fields=cdempresa,cdcliente
 separator=;
 trailing_separator=true
 
-[foreign_keys]
-cdempresa=tblvpempresa.cdempresa
-cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
-cdempresa,cdtabelapreco=tblvptabelapreco.cdempresa,cdtabelapreco
-
 [sensitive_fields]
 nmrazaosocial
 nmfantasia

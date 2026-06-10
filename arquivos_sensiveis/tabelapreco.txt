@@ -2,14 +2,14 @@
 name=tblvptabelapreco
 
 [primary_key]
-fields=cdempresa,cdtabelapreco
+fields=cdempresa,cdrepresentante,cdtabelapreco
 
 [key_policy]
 mode=preserve
 
 [rowkey]
 target=rowkey
-fields=cdempresa,cdtabelapreco
+fields=cdempresa,cdrepresentante,cdtabelapreco
 separator=;
 trailing_separator=true
 
@@ -18,4 +18,3 @@ cdempresa=tblvpempresa.cdempresa
 
 [sensitive_fields]
 dstabelapreco
-dsdescricao

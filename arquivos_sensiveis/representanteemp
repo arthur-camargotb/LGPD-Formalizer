@@ -1,0 +1,16 @@
+[table]
+name=tblvprepresentanteemp
+
+[primary_key]
+fields=cdempresa,cdrepresentante
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdrepresentante
+separator=;
+trailing_separator=true
+
+[sensitive_fields]
