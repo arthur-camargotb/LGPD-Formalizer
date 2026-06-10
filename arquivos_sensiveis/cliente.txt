@@ -2,14 +2,14 @@
 name=tblvpcliente
 
 [primary_key]
-fields=cdempresa,cdcliente
+fields=cdempresa,cdrepresentante,cdcliente
 
 [key_policy]
 mode=preserve
 
 [rowkey]
 target=rowkey
-fields=cdempresa,cdcliente
+fields=cdempresa,cdrepresentante,cdcliente
 separator=;
 trailing_separator=true
 

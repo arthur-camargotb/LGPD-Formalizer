@@ -13,8 +13,5 @@ fields=cdempresa,cdrepresentante,cdtabelapreco
 separator=;
 trailing_separator=true
 
-[foreign_keys]
-cdempresa=tblvpempresa.cdempresa
-
 [sensitive_fields]
 dstabelapreco
