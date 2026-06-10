@@ -1,0 +1,1872 @@
+Quero que você atue como um desenvolvedor Python sênior, com experiência em SQLite, anonimização de dados, geração de dados sintéticos, integridade referencial, modelagem relacional, LGPD, documentação técnica e criação de ferramentas internas seguras para bases usadas em demonstrações comerciais.
+
+# Objetivo geral
+
+Preciso criar um projeto em Python para transformar uma base SQLite real em uma base segura para demonstração comercial.
+
+A base original será de um cliente real, mas será usada apenas internamente para demonstrar o aplicativo para um prospect da mesma área de negócio.
+
+O prospect não receberá o aplicativo, não receberá a base de dados e não terá acesso técnico ao banco. Ele apenas verá as telas do aplicativo durante uma apresentação.
+
+Mesmo assim, a base usada na demonstração não pode conter dados reais identificáveis, dados pessoais, dados sensíveis ou informações comerciais que possam revelar o cliente real.
+
+O projeto deve entregar:
+
+1. Código Python completo.
+2. Estrutura de pastas recomendada.
+3. Arquivos de configuração por entidade.
+4. Tratamento de campos sensíveis.
+5. Tratamento de tabelas que devem ser limpas.
+6. Preservação ou regeneração controlada de chaves.
+7. Propagação de chaves para tabelas dependentes, quando necessário.
+8. Recalculo obrigatório de `rowkey`.
+9. Logs seguros.
+10. Validações técnicas.
+11. `README.md` completo para manutenção futura.
+12. Pasta `examples/` com arquivos de configuração de exemplo.
+
+Não quero uma resposta conceitual, simplificada ou incompleta. Quero um projeto pronto para uso real, com código funcional, documentação e critérios claros de validação.
+
+---
+
+# Contexto de uso
+
+O cenário é:
+
+```text
+Cliente real -> base SQLite copiada -> base sanitizada -> demonstração em tela para prospect
+```
+
+A base sanitizada será usada apenas para rodar o aplicativo internamente e apresentar telas.
+
+O prospect não deve receber:
+
+```text
+- banco de dados;
+- aplicação instalada;
+- exportações;
+- relatórios reais;
+- dumps;
+- arquivos técnicos;
+- logs;
+- qualquer acesso direto ou indireto à base.
+```
+
+Apesar disso, qualquer campo que apareça em tela deve ser tratado como potencialmente sensível ou identificável.
+
+---
+
+# Contexto LGPD
+
+A solução deve seguir boas práticas técnicas compatíveis com a LGPD.
+
+A ferramenta deve aplicar anonimização ou geração de dados sintéticos irreversíveis nos campos pessoais, identificáveis ou visíveis.
+
+Importante:
+
+1. Não deve ser possível reconstruir dados reais a partir da base final usando apenas a base sanitizada.
+2. Não manter nomes reais.
+3. Não manter e-mails reais.
+4. Não manter telefones reais.
+5. Não manter CPF real.
+6. Não manter CNPJ real.
+7. Não manter endereços reais.
+8. Não manter observações livres com dados reais.
+9. Não manter nomes de contatos reais.
+10. Não manter nomes de representantes reais.
+11. Não manter nomes de clientes reais.
+12. Não manter informações comerciais específicas que possam identificar o cliente real.
+13. Gerar dados fictícios válidos e coerentes para uso em tela e validações do software.
+14. Gerar logs técnicos sem registrar dados reais sensíveis.
+15. Explicar no `README.md` que a validação jurídica final depende do controlador, DPO ou jurídico da empresa.
+
+A documentação deve deixar claro que preservar códigos técnicos pode ser adequado para manter a integridade do aplicativo, mas, se internamente esses códigos ainda permitirem associação com a base original, a base pode ser considerada pseudonimizada no ambiente interno, e não necessariamente anonimizada de forma absoluta.
+
+Por isso, o objetivo prático da ferramenta é:
+
+```text
+Preservar a integridade técnica da aplicação, mas substituir todos os dados visíveis, pessoais, identificáveis ou comercialmente sensíveis por dados sintéticos coerentes.
+```
+
+---
+
+# Estrutura esperada do projeto
+
+Criar uma estrutura semelhante a:
+
+```text
+projeto/
+│
+├── main.py
+├── README.md
+│
+├── db/
+│   └── base.sqlite3
+│
+├── arquivos_sensiveis/
+│   ├── cliente.txt
+│   ├── empresa.txt
+│   ├── representante.txt
+│   ├── produto.txt
+│   ├── tabelapreco.txt
+│   └── pedido.txt
+│
+├── clearTables.txt
+│
+├── output/
+│   └── base_demo.sqlite3
+│
+├── logs/
+│   └── anonimizacao.log
+│
+└── examples/
+    ├── cliente.txt
+    ├── empresa.txt
+    ├── representante.txt
+    ├── produto.txt
+    ├── tabelapreco.txt
+    └── clearTables.txt
+```
+
+A base original ficará dentro da pasta:
+
+```text
+db/
+```
+
+A base final sanitizada deve ser gerada dentro da pasta:
+
+```text
+output/
+```
+
+A base original nunca deve ser alterada diretamente.
+
+---
+
+# Localização da base SQLite
+
+O script deve aceitar a base via argumento:
+
+```bash
+python main.py --db db/base.sqlite3
+```
+
+Também deve conseguir localizar automaticamente um arquivo SQLite dentro da pasta `db`.
+
+Extensões aceitas:
+
+```text
+.sqlite
+.sqlite3
+.sqllite3
+.db
+```
+
+Mesmo que a extensão esteja errada, como `.sqllite3`, o script deve tentar validar se o arquivo é um SQLite válido.
+
+Se houver mais de uma base dentro de `db/`, o script deve exigir que o usuário informe o caminho via `--db`.
+
+---
+
+# Regra principal de segurança
+
+O script deve:
+
+1. Localizar a base original.
+2. Criar uma cópia em `output/`.
+3. Abrir e modificar somente a cópia.
+4. Nunca alterar a base original.
+5. Executar alterações dentro de transação.
+6. Fazer rollback em erro crítico.
+7. Gerar log seguro.
+8. Gerar relatório final.
+9. Validar integridade após o processamento.
+
+Exemplo de saída:
+
+```text
+output/base_demo.sqlite3
+```
+
+---
+
+# Configuração por arquivos
+
+Dentro da pasta `arquivos_sensiveis`, cada arquivo `.txt` representa uma entidade/tabela.
+
+O nome do arquivo representa a entidade sem o prefixo da tabela.
+
+O prefixo padrão é:
+
+```text
+tblvp
+```
+
+Exemplos:
+
+```text
+cliente.txt          -> tblvpcliente
+empresa.txt          -> tblvpempresa
+representante.txt    -> tblvprepresentante
+produto.txt          -> tblvpproduto
+tabelapreco.txt      -> tblvptabelapreco
+pedido.txt           -> tblvppedido
+```
+
+O script deve montar dinamicamente o nome da tabela:
+
+```python
+tabela = "tblvp" + nome_do_arquivo_sem_extensao
+```
+
+A seção `[table]` pode sobrescrever esse comportamento, caso necessário.
+
+---
+
+# Formato recomendado dos arquivos `.txt`
+
+Os arquivos de configuração devem aceitar formato por seções.
+
+Exemplo de `cliente.txt`:
+
+```text
+[table]
+name=tblvpcliente
+
+[primary_key]
+fields=cdempresa,cdcliente
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdcliente
+separator=;
+trailing_separator=true
+
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
+cdempresa,cdtabelapreco=tblvptabelapreco.cdempresa,cdtabelapreco
+
+[sensitive_fields]
+nmrazaosocial
+nmfantasia
+dsemail
+nufone
+nucelular
+nucnpj
+nuinscricaoestadual
+dslogradourocomercial
+nulogradourocomercial
+dsbairrocomercial
+dscomplementocomercial
+dscepcomercial
+dscidadecomercial
+cdestadocomercial
+dsestadocomercial
+dsobservacao
+```
+
+O parser deve aceitar comentários iniciados por `#`.
+
+Exemplo:
+
+```text
+# Campos visíveis na tela de cadastro de clientes
+nmrazaosocial
+nmfantasia
+```
+
+Linhas vazias devem ser ignoradas.
+
+---
+
+# Compatibilidade com formato simples antigo
+
+Além do formato estruturado, o script deve aceitar arquivos `.txt` contendo apenas a lista de campos sensíveis.
+
+Exemplo:
+
+```text
+nmrazaosocial
+nmfantasia
+dsemail
+nufone
+nucelular
+nucnpj
+```
+
+Nesse caso:
+
+1. A tabela deve ser inferida pelo nome do arquivo.
+2. A chave primária deve ser detectada via `PRAGMA table_info`.
+3. A política de chave deve ser `preserve`.
+4. A `rowkey` só deve ser atualizada automaticamente se for seguro inferir a coluna `rowkey` e os campos da chave.
+5. Se não for seguro inferir, registrar aviso no log.
+
+---
+
+# Política de chaves
+
+As tabelas possuem chaves e relacionamentos entre si.
+
+A regra padrão deve ser:
+
+```text
+Preservar chaves técnicas existentes.
+```
+
+Ou seja, por padrão, o script não deve alterar campos como:
+
+```text
+cdcliente
+cdempresa
+cdrepresentante
+cdproduto
+cdtabelapreco
+cdpedido
+cdcondicaopagamento
+cdformapagamento
+```
+
+Motivo:
+
+Alterar chaves aumenta muito o risco de quebrar integridade referencial entre tabelas e impedir o aplicativo de funcionar.
+
+A anonimização deve focar principalmente nos dados visíveis, pessoais ou identificáveis.
+
+---
+
+# Configuração de política de chave
+
+Cada entidade pode ter a seção:
+
+```text
+[key_policy]
+mode=preserve
+```
+
+ou:
+
+```text
+[key_policy]
+mode=regenerate
+regenerate_fields=cdrepresentante
+start_at=10
+```
+
+Modos suportados:
+
+```text
+preserve    -> mantém chaves originais e anonimiza apenas campos configurados
+regenerate  -> gera novas chaves e propaga para tabelas dependentes
+```
+
+O modo padrão deve ser:
+
+```text
+preserve
+```
+
+A regeneração de chaves só deve ocorrer se configurada explicitamente.
+
+---
+
+# Exemplo de regeneração de chave
+
+Arquivo `representante.txt`:
+
+```text
+[table]
+name=tblvprepresentante
+
+[primary_key]
+fields=cdempresa,cdrepresentante
+
+[key_policy]
+mode=regenerate
+regenerate_fields=cdrepresentante
+start_at=10
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdrepresentante
+separator=;
+trailing_separator=true
+
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+
+[sensitive_fields]
+nmrepresentante
+dsemail
+nufone
+nucelular
+nucpf
+dsobservacao
+```
+
+Se a tabela original possui:
+
+```text
+cdempresa=1
+cdrepresentante=847
+```
+
+E o novo código gerado for:
+
+```text
+cdempresa=1
+cdrepresentante=10
+```
+
+O script deve criar um mapa interno:
+
+```python
+key_map = {
+    "tblvprepresentante": {
+        (1, 847): (1, 10)
+    }
+}
+```
+
+Esse mapa deve ser usado para atualizar todas as tabelas filhas configuradas.
+
+Exemplo em `cliente.txt`:
+
+```text
+[foreign_keys]
+cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
+```
+
+Então todo cliente que antes apontava para:
+
+```text
+cdempresa=1
+cdrepresentante=847
+```
+
+deve passar a apontar para:
+
+```text
+cdempresa=1
+cdrepresentante=10
+```
+
+Depois disso, qualquer `rowkey` afetada deve ser recalculada.
+
+---
+
+# Chaves primárias
+
+Cada arquivo pode declarar a chave primária da tabela.
+
+Exemplo de chave simples:
+
+```text
+[primary_key]
+fields=cdcliente
+```
+
+Exemplo de chave composta:
+
+```text
+[primary_key]
+fields=cdempresa,cdcliente
+```
+
+O script deve usar a chave primária para:
+
+1. Identificar o registro.
+2. Gerar dados determinísticos.
+3. Recalcular `rowkey`.
+4. Criar mapa de chaves, se `mode=regenerate`.
+5. Validar integridade.
+
+Se `[primary_key]` não for informado, o script deve tentar detectar via:
+
+```sql
+PRAGMA table_info(nome_tabela);
+```
+
+Se não houver chave primária definida, usar `rowid`.
+
+---
+
+# Chaves estrangeiras
+
+As relações entre tabelas devem ser configuradas na seção `[foreign_keys]`.
+
+Exemplo simples:
+
+```text
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+```
+
+Exemplo com chave composta:
+
+```text
+[foreign_keys]
+cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
+cdempresa,cdtabelapreco=tblvptabelapreco.cdempresa,cdtabelapreco
+```
+
+O script deve interpretar isso como:
+
+```text
+tblvpcliente.cdempresa + tblvpcliente.cdrepresentante
+```
+
+referenciando:
+
+```text
+tblvprepresentante.cdempresa + tblvprepresentante.cdrepresentante
+```
+
+O script deve validar se os campos existem tanto na tabela filha quanto na tabela pai.
+
+Após o processamento, o script deve validar se as FKs configuradas continuam consistentes.
+
+---
+
+# Ordem de processamento
+
+O script deve montar uma ordem de processamento baseada nas dependências declaradas em `[foreign_keys]`.
+
+Exemplo:
+
+```text
+empresa não depende de ninguém
+representante depende de empresa
+tabelapreco depende de empresa
+cliente depende de empresa, representante e tabelapreco
+pedido depende de cliente, representante e empresa
+```
+
+Ordem esperada:
+
+```text
+tblvpempresa
+tblvprepresentante
+tblvptabelapreco
+tblvpcliente
+tblvppedido
+```
+
+Implementar ordenação topológica simples.
+
+Se houver dependência circular:
+
+1. Registrar aviso.
+2. Preservar chaves como modo seguro.
+3. Não regenerar chaves automaticamente em entidades envolvidas no ciclo, salvo configuração explícita muito clara.
+
+---
+
+# Rowkey
+
+A base possui uma coluna ou estrutura chamada `rowkey`, que representa a concatenação das chaves da tabela.
+
+A `rowkey` precisa sempre ser atualizada/recalculada depois de qualquer alteração de chave.
+
+Mesmo preservando chaves, o script pode recalcular a `rowkey` para garantir consistência.
+
+Configuração padrão:
+
+```text
+[rowkey]
+target=rowkey
+fields=cdempresa,cdcliente
+separator=;
+trailing_separator=true
+```
+
+Exemplo:
+
+```text
+cdempresa=1
+cdcliente=1234
+```
+
+Resultado:
+
+```text
+1;1234;
+```
+
+Sem separador final:
+
+```text
+[rowkey]
+target=rowkey
+fields=cdempresa,cdcliente
+separator=;
+trailing_separator=false
+```
+
+Resultado:
+
+```text
+1;1234
+```
+
+A `rowkey` pode ter mais campos:
+
+```text
+[rowkey]
+target=rowkey
+fields=cdempresa,nupedido,cdproduto,sequencia
+separator=;
+trailing_separator=true
+```
+
+Resultado:
+
+```text
+1;98765;10033;1;
+```
+
+O script deve:
+
+1. Validar se a coluna configurada em `target` existe.
+2. Validar se todos os campos em `fields` existem.
+3. Recalcular a `rowkey` com base nos valores atuais dos campos.
+4. Não usar a `rowkey` antiga como referência.
+5. Respeitar `separator`.
+6. Respeitar `trailing_separator`.
+7. Registrar inconsistências no log.
+8. Atualizar a `rowkey` depois de propagar chaves regeneradas.
+
+---
+
+# Caso a rowkey esteja em tabela separada
+
+Se existir uma tabela separada chamada `rowkey`, e não uma coluna dentro das tabelas de negócio, o script deve suportar configuração específica.
+
+Exemplo:
+
+```text
+[rowkey]
+mode=external_table
+table=rowkey
+entity_field=nmtabela
+entity_value=tblvpcliente
+key_field=dsrowkey
+fields=cdempresa,cdcliente
+separator=;
+trailing_separator=true
+```
+
+Nesse cenário, o script deve atualizar a tabela `rowkey` conforme a estrutura real configurada.
+
+Se a estrutura da tabela `rowkey` não puder ser inferida com segurança, o script deve registrar aviso e exigir configuração explícita.
+
+O script não deve apagar, recriar ou truncar a tabela `rowkey` sem autorização explícita.
+
+---
+
+# Campos sensíveis
+
+A seção `[sensitive_fields]` contém os campos que serão anonimizados.
+
+Exemplo:
+
+```text
+[sensitive_fields]
+nmrazaosocial
+nmfantasia
+dsemail
+nufone
+nucelular
+nucnpj
+nuinscricaoestadual
+dslogradourocomercial
+nulogradourocomercial
+dsbairrocomercial
+dscomplementocomercial
+dscepcomercial
+dscidadecomercial
+cdestadocomercial
+dsestadocomercial
+dsobservacao
+```
+
+O script deve:
+
+1. Ler todos os arquivos `.txt` dentro de `arquivos_sensiveis`.
+2. Identificar a tabela correspondente.
+3. Validar se a tabela existe.
+4. Validar se cada campo listado existe.
+5. Aplicar anonimização somente nos campos configurados e existentes.
+6. Registrar em log campos ou tabelas inexistentes.
+7. Não interromper todo o processo por um campo inexistente, salvo se `--strict` estiver ativo.
+8. Interromper em erro crítico que possa corromper a base.
+
+---
+
+# Campos visíveis no aplicativo
+
+A documentação deve orientar que qualquer campo visível em tela precisa ser incluído na sanitização.
+
+Mesmo que não pareça dado pessoal direto, pode identificar o cliente real.
+
+Exemplos de campos que devem ser avaliados:
+
+```text
+nome de cliente
+nome fantasia
+razão social
+nome de representante
+nome de contato
+descrição de pedido
+observação de pedido
+histórico de atendimento
+endereço de entrega
+nome de rota
+nome de tabela de preço
+nome de condição comercial
+nome de produto exclusivo
+nome de campanha
+informações de negociação
+observações internas
+comentários livres
+```
+
+---
+
+# Tabelas que devem ser limpas
+
+Haverá um arquivo chamado:
+
+```text
+clearTables.txt
+```
+
+Nele serão listadas tabelas que devem ser completamente limpas.
+
+Exemplo:
+
+```text
+tblvplogintegracao
+tblvphistoricoalteracao
+tblvpanexo
+tblvpobservacao
+tblvplogerro
+```
+
+O script deve executar:
+
+```sql
+DELETE FROM nome_da_tabela;
+```
+
+Antes de limpar, deve validar se a tabela existe.
+
+O log deve registrar:
+
+1. Tabelas limpas com sucesso.
+2. Tabelas não encontradas.
+3. Quantidade de registros removidos.
+4. Erros ocorridos.
+
+A limpeza deve ocorrer dentro da transação.
+
+---
+
+# Dados gerados
+
+Os dados anonimizados precisam continuar úteis para demonstração e validação do software.
+
+Não preencher tudo com:
+
+```text
+NULL
+teste
+000000
+123456
+valor inválido
+```
+
+Os dados devem ser sintéticos, coerentes e válidos.
+
+---
+
+# Geração de nomes por entidade
+
+O script deve usar o nome da entidade para gerar dados mais úteis.
+
+Exemplos:
+
+```text
+cliente.txt       -> Cliente Demo 000001
+empresa.txt       -> Empresa Demo 000001
+representante.txt -> Representante Demo 000001
+produto.txt       -> Produto Demo 000001
+tabelapreco.txt   -> Tabela de Preço Demo 000001
+pedido.txt        -> Pedido Demo 000001
+```
+
+Criar função para transformar nome técnico em nome amigável.
+
+Exemplos:
+
+```text
+cliente        -> Cliente
+empresa        -> Empresa
+representante  -> Representante
+tabelapreco    -> Tabela de Preço
+produto        -> Produto
+pedido         -> Pedido
+notafiscal     -> Nota Fiscal
+condicaopagamento -> Condição de Pagamento
+```
+
+Para entidades desconhecidas, usar o nome convertido ou:
+
+```text
+Entidade Demo 000001
+```
+
+---
+
+# CNPJ
+
+Campos identificados como CNPJ devem receber CNPJs válidos, com dígitos verificadores corretos.
+
+Campos possíveis:
+
+```text
+nucnpj
+cnpj
+cpfcnpj
+nudocumento
+documento
+```
+
+O script deve tentar preservar o formato original.
+
+Exemplos:
+
+```text
+11222333000181
+11.222.333/0001-81
+```
+
+Se o valor original estiver formatado, gerar formatado.
+
+Se estiver sem pontuação, gerar sem pontuação.
+
+---
+
+# CPF
+
+Campos identificados como CPF devem receber CPFs válidos, com dígitos verificadores corretos.
+
+Campos possíveis:
+
+```text
+nucpf
+cpf
+cpfcnpj
+nudocumento
+documento
+```
+
+Preservar o formato original quando possível.
+
+---
+
+# CPF/CNPJ misto
+
+Campos como:
+
+```text
+cpfcnpj
+nudocumento
+documento
+```
+
+Devem ser tratados conforme o padrão original:
+
+1. Se o valor original parece CPF, gerar CPF válido.
+2. Se o valor original parece CNPJ, gerar CNPJ válido.
+3. Se estiver vazio ou ambíguo, usar CNPJ para entidades empresariais.
+4. Usar CPF para entidades de pessoa física, quando for possível inferir.
+5. Caso não seja possível inferir, usar CNPJ como padrão para cliente, empresa e fornecedor.
+
+---
+
+# E-mail
+
+Campos como:
+
+```text
+dsemail
+email
+mail
+```
+
+Devem receber e-mails fictícios válidos.
+
+Exemplos:
+
+```text
+cliente000001@demo.local
+representante000003@demo.local
+empresa000010@demo.local
+```
+
+Não usar domínios reais de terceiros.
+
+Preferir:
+
+```text
+demo.local
+example.com
+```
+
+---
+
+# Telefones
+
+Campos como:
+
+```text
+nufone
+telefone
+fone
+nucelular
+celular
+whatsapp
+```
+
+Devem receber números válidos em formato brasileiro de demonstração.
+
+Exemplos:
+
+```text
+4833330001
+48999990001
+(48) 3333-0001
+(48) 99999-0001
+```
+
+Preservar o formato original quando possível.
+
+---
+
+# CEP
+
+Campos como:
+
+```text
+cep
+dscep
+nucep
+```
+
+Devem receber CEPs fictícios em formato válido.
+
+Exemplos:
+
+```text
+88000001
+88000-001
+```
+
+Preservar o formato original quando possível.
+
+---
+
+# Endereço
+
+Campos de endereço devem receber dados fictícios coerentes.
+
+Campos possíveis:
+
+```text
+logradouro
+endereco
+bairro
+cidade
+estado
+uf
+complemento
+numero
+nulogradouro
+```
+
+Exemplos:
+
+```text
+Rua Demonstração 000001
+Bairro Demo
+Cidade Demo
+SC
+Santa Catarina
+Sala 000001
+101
+```
+
+---
+
+# Inscrição estadual
+
+Campos como:
+
+```text
+nuinscricaoestadual
+inscricaoestadual
+ie
+```
+
+Devem receber:
+
+```text
+ISENTO
+```
+
+ou valor fictício compatível, respeitando o tipo e tamanho do campo.
+
+---
+
+# Observações livres
+
+Campos como:
+
+```text
+dsobservacao
+observacao
+obs
+comentario
+historico
+```
+
+Devem ser substituídos por texto fictício.
+
+Exemplo:
+
+```text
+Observação fictícia para demonstração 000001.
+```
+
+Nunca manter conteúdo original, pois observações livres costumam conter dados pessoais, contatos, endereços, nomes reais ou detalhes comerciais.
+
+---
+
+# Descrições
+
+Campos como:
+
+```text
+descricao
+dsdescricao
+dstitulo
+dstabelapreco
+dscondicao
+```
+
+Devem receber descrições fictícias coerentes com a entidade.
+
+Exemplos:
+
+```text
+Tabela de Preço Demo 000001
+Produto Demo 000001
+Condição de Pagamento Demo 000001
+Descrição fictícia para demonstração 000001
+```
+
+---
+
+# Inferência de tipo por nome de campo
+
+Criar função:
+
+```python
+def inferir_tipo_campo(nome_coluna: str) -> str:
+    ...
+```
+
+Mapeamentos esperados:
+
+```text
+email, dsemail, mail                         -> email
+cnpj, nucnpj                                 -> cnpj
+cpf, nucpf                                   -> cpf
+cpfcnpj, documento, nudocumento              -> documento
+fone, telefone, celular, whatsapp            -> telefone
+cep, dscep, nucep                            -> cep
+logradouro, endereco                         -> logradouro
+bairro                                       -> bairro
+cidade                                       -> cidade
+estado, dsestado                             -> estado
+uf, cdestado                                 -> uf
+observacao, obs, comentario, historico        -> observacao
+razaosocial, fantasia, nome                  -> nome_entidade
+descricao, dsdescricao, dstitulo             -> descricao_entidade
+numero, nuendereco, nulogradouro             -> numero_endereco
+inscricaoestadual, ie                        -> inscricao_estadual
+```
+
+Campos não reconhecidos devem receber valor seguro e coerente, respeitando o tipo da coluna.
+
+---
+
+# Respeito ao tipo do banco
+
+O script não deve quebrar os tipos de dados.
+
+Antes de atualizar um campo, deve identificar o tipo declarado da coluna via:
+
+```sql
+PRAGMA table_info(nome_tabela);
+```
+
+Se o campo for numérico, não gravar texto.
+
+Se o campo for texto, pode gravar valores textuais.
+
+Se o campo for `NOT NULL`, nunca gravar `NULL`.
+
+Se o valor gerado exceder o tamanho aparente ou conhecido do campo, truncar com segurança, sem gerar valor inválido para documentos, e-mails ou dados que exigem formato.
+
+---
+
+# Consistência dos dados por registro
+
+O script deve garantir consistência dentro da mesma execução.
+
+Exemplo:
+
+```text
+cdempresa=1
+cdcliente=1234
+```
+
+Campos gerados:
+
+```text
+nmrazaosocial          -> Cliente Demo 001234
+nmfantasia             -> Cliente Demo 001234
+dsemail                -> cliente001234@demo.local
+nucnpj                 -> CNPJ válido gerado de forma determinística
+nufone                 -> telefone fictício coerente
+rowkey                 -> 1;1234;
+```
+
+Preferencialmente, usar a chave primária configurada em `[primary_key]`.
+
+Se não houver chave primária, usar `rowid`.
+
+---
+
+# Geração determinística
+
+A geração deve ser determinística quando uma seed for informada.
+
+Exemplo:
+
+```bash
+python main.py --seed 123
+```
+
+Para a mesma base, mesma configuração e mesma seed, o resultado deve ser o mesmo.
+
+Usar uma combinação como:
+
+```text
+seed
+nome_da_tabela
+nome_do_campo
+chave_do_registro
+```
+
+para gerar valores estáveis.
+
+---
+
+# CPF e CNPJ válidos
+
+Implementar funções próprias para gerar CPF e CNPJ válidos com cálculo correto dos dígitos verificadores.
+
+Não depender obrigatoriamente de bibliotecas externas.
+
+A solução deve funcionar com biblioteca padrão do Python.
+
+Bibliotecas como `Faker` podem ser sugeridas apenas como opcionais, mas não devem ser obrigatórias.
+
+---
+
+# Validação de integridade referencial
+
+Após processar a base, o script deve validar as relações configuradas em `[foreign_keys]`.
+
+Exemplo:
+
+```text
+[foreign_keys]
+cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
+```
+
+Validar se todo par:
+
+```text
+tblvpcliente.cdempresa + tblvpcliente.cdrepresentante
+```
+
+existe em:
+
+```text
+tblvprepresentante.cdempresa + tblvprepresentante.cdrepresentante
+```
+
+Se encontrar registros órfãos:
+
+1. Registrar erro no relatório.
+2. Em modo `--strict`, fazer rollback.
+3. Em modo normal, registrar alerta crítico.
+
+---
+
+# Validação de rowkey
+
+Após processar cada tabela com configuração de `rowkey`, validar se a coluna `rowkey` corresponde à concatenação dos campos atuais.
+
+Exemplo:
+
+```text
+fields=cdempresa,cdcliente
+separator=;
+trailing_separator=true
+```
+
+Para:
+
+```text
+cdempresa=1
+cdcliente=1234
+```
+
+Esperado:
+
+```text
+1;1234;
+```
+
+Se houver divergência, corrigir e registrar no log.
+
+---
+
+# Requisitos técnicos do Python
+
+O script deve ser compatível com Python 3.10+.
+
+Preferir biblioteca padrão:
+
+```python
+sqlite3
+pathlib
+shutil
+logging
+re
+random
+hashlib
+datetime
+argparse
+typing
+collections
+dataclasses
+configparser
+```
+
+O script deve ser executável via terminal.
+
+Comando básico:
+
+```bash
+python main.py
+```
+
+Com argumentos:
+
+```bash
+python main.py --db db/base.sqlite3 --out output/base_demo.sqlite3
+```
+
+Argumentos desejáveis:
+
+```text
+--db              caminho da base original
+--out             caminho da base final
+--sensitive-dir   caminho da pasta arquivos_sensiveis
+--clear-file      caminho do clearTables.txt
+--dry-run         simula sem gravar alterações
+--seed            seed para geração determinística
+--verbose         log detalhado
+--key-mode        preserve ou regenerate
+--strict          falha em caso de tabela/campo/configuração inválida
+```
+
+---
+
+# Modo dry-run
+
+O modo `--dry-run` deve:
+
+1. Ler a base.
+2. Ler configurações.
+3. Validar tabelas e campos.
+4. Simular quantidade de registros que seriam afetados.
+5. Simular tabelas que seriam limpas.
+6. Simular rowkeys que seriam recalculadas.
+7. Simular FKs que seriam validadas.
+8. Não gravar alterações definitivas.
+9. Não alterar a base original.
+10. Gerar relatório de simulação.
+
+---
+
+# Logs
+
+Criar pasta:
+
+```text
+logs/
+```
+
+Gerar log:
+
+```text
+logs/anonimizacao.log
+```
+
+O log deve conter:
+
+1. Início do processamento.
+2. Base original usada.
+3. Base de saída criada.
+4. Tabelas encontradas.
+5. Arquivos de configuração lidos.
+6. Tabelas processadas.
+7. Quantidade de registros processados.
+8. Campos anonimizados.
+9. Tabelas limpas.
+10. Chaves preservadas.
+11. Chaves regeneradas, quando aplicável.
+12. FKs atualizadas.
+13. Rowkeys recalculadas.
+14. Avisos.
+15. Erros.
+16. Resultado final.
+
+O log nunca deve registrar dados reais sensíveis.
+
+Não imprimir valores originais de campos sensíveis.
+
+---
+
+# Transação e rollback
+
+Todas as alterações na base de saída devem ocorrer dentro de transação.
+
+Se ocorrer erro crítico:
+
+1. Fazer rollback.
+2. Registrar erro.
+3. Não deixar base parcialmente processada como se fosse válida.
+4. Informar que a base final não deve ser usada.
+
+Erros críticos incluem:
+
+```text
+falha ao copiar base
+falha ao abrir SQLite
+falha em alteração de chave com dependências
+falha em validação de FK em modo strict
+falha em recalculo de rowkey em modo strict
+erro SQL grave
+```
+
+---
+
+# Preservação técnica da base
+
+O script deve:
+
+1. Não alterar estrutura das tabelas.
+2. Não remover colunas.
+3. Não criar colunas.
+4. Não alterar tipo de coluna.
+5. Não alterar índices.
+6. Não alterar triggers.
+7. Não alterar chaves primárias, salvo se configurado.
+8. Não alterar chaves estrangeiras sem propagação completa.
+9. Não substituir campos numéricos por texto.
+10. Respeitar `NOT NULL`.
+11. Preservar integridade técnica da aplicação.
+12. Gerar base final funcional.
+
+---
+
+# Arquivo clearTables.txt
+
+Exemplo:
+
+```text
+# Tabelas de logs e dados que não devem ir para demonstração
+tblvplogintegracao
+tblvphistoricoalteracao
+tblvpanexo
+tblvpobservacao
+tblvplogerro
+```
+
+O script deve ignorar comentários e linhas vazias.
+
+---
+
+# Exemplo completo de cliente.txt
+
+```text
+[table]
+name=tblvpcliente
+
+[primary_key]
+fields=cdempresa,cdcliente
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdcliente
+separator=;
+trailing_separator=true
+
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+cdempresa,cdrepresentante=tblvprepresentante.cdempresa,cdrepresentante
+cdempresa,cdtabelapreco=tblvptabelapreco.cdempresa,cdtabelapreco
+
+[sensitive_fields]
+nmrazaosocial
+nmfantasia
+dsemail
+nufone
+nucelular
+nucnpj
+nuinscricaoestadual
+dslogradourocomercial
+nulogradourocomercial
+dsbairrocomercial
+dscomplementocomercial
+dscepcomercial
+dscidadecomercial
+cdestadocomercial
+dsestadocomercial
+dsobservacao
+```
+
+---
+
+# Exemplo completo de representante.txt
+
+```text
+[table]
+name=tblvprepresentante
+
+[primary_key]
+fields=cdempresa,cdrepresentante
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdrepresentante
+separator=;
+trailing_separator=true
+
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+
+[sensitive_fields]
+nmrepresentante
+dsemail
+nufone
+nucelular
+nucpf
+dsobservacao
+```
+
+---
+
+# Exemplo completo de empresa.txt
+
+```text
+[table]
+name=tblvpempresa
+
+[primary_key]
+fields=cdempresa
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa
+separator=;
+trailing_separator=true
+
+[sensitive_fields]
+nmempresa
+nmfantasia
+nucnpj
+dsemail
+nufone
+dslogradouro
+nulogradouro
+dsbairro
+dscep
+dscidade
+cdestado
+dsestado
+dsobservacao
+```
+
+---
+
+# Exemplo completo de tabelapreco.txt
+
+```text
+[table]
+name=tblvptabelapreco
+
+[primary_key]
+fields=cdempresa,cdtabelapreco
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdtabelapreco
+separator=;
+trailing_separator=true
+
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+
+[sensitive_fields]
+dstabelapreco
+dsdescricao
+```
+
+---
+
+# Exemplo completo de produto.txt
+
+```text
+[table]
+name=tblvpproduto
+
+[primary_key]
+fields=cdempresa,cdproduto
+
+[key_policy]
+mode=preserve
+
+[rowkey]
+target=rowkey
+fields=cdempresa,cdproduto
+separator=;
+trailing_separator=true
+
+[foreign_keys]
+cdempresa=tblvpempresa.cdempresa
+
+[sensitive_fields]
+nmproduto
+dsproduto
+dsdescricao
+dsmarca
+dsobservacao
+```
+
+---
+
+# README.md obrigatório
+
+Criar um arquivo `README.md` completo.
+
+O README deve conter esta estrutura mínima:
+
+```markdown
+# Sanitizador de Base SQLite para Demonstração
+
+## 1. Objetivo
+
+Explicar que o projeto cria uma cópia sanitizada de uma base SQLite real para uso em demonstrações comerciais.
+
+## 2. Aviso sobre LGPD
+
+Explicar que a ferramenta aplica medidas técnicas de anonimização/pseudonimização, mas que a validação jurídica final depende do controlador, DPO ou jurídico.
+
+Explicar que dados anonimizados não devem permitir identificação direta ou indireta do titular.
+
+Explicar que preservar códigos técnicos pode manter possibilidade de associação interna caso exista base original ou tabela de correspondência.
+
+## 3. Cenário de uso
+
+Explicar que a base será usada apenas internamente para demonstração em tela, sem envio ao prospect e sem acesso direto ao banco.
+
+## 4. Estrutura de pastas
+
+Mostrar a estrutura do projeto.
+
+## 5. Como preparar a base
+
+Explicar onde colocar o arquivo SQLite original.
+
+## 6. Como configurar uma entidade
+
+Explicar o padrão:
+
+cliente.txt -> tblvpcliente
+
+## 7. Formato do arquivo de configuração
+
+Explicar seções:
+
+[table]
+[primary_key]
+[key_policy]
+[rowkey]
+[foreign_keys]
+[sensitive_fields]
+
+## 8. Chaves primárias
+
+Explicar chave simples e chave composta.
+
+## 9. Chaves estrangeiras
+
+Explicar relacionamento pai/filho e propagação de chaves.
+
+## 10. Rowkey
+
+Explicar que a rowkey deve ser sempre reconstruída a partir dos campos atuais da chave.
+
+## 11. Tabelas limpas
+
+Explicar o uso de clearTables.txt.
+
+## 12. Como executar
+
+Mostrar comandos:
+
+python main.py
+python main.py --db db/base.sqlite3 --out output/base_demo.sqlite3
+python main.py --dry-run
+python main.py --seed 123
+python main.py --strict
+
+## 13. Logs
+
+Explicar onde ficam os logs e como interpretar.
+
+## 14. Como adicionar nova tabela
+
+Passo a passo:
+
+1. Criar arquivo na pasta arquivos_sensiveis.
+2. Configurar tabela.
+3. Configurar chave primária.
+4. Configurar rowkey.
+5. Configurar FKs, se houver.
+6. Listar campos sensíveis.
+7. Rodar dry-run.
+8. Validar logs.
+9. Gerar base final.
+
+## 15. Como validar a base final
+
+Incluir consultas SQL úteis para:
+
+- contar registros;
+- validar campos sensíveis;
+- validar rowkeys;
+- validar FKs;
+- confirmar tabelas limpas.
+
+## 16. Checklist antes da demonstração
+
+- A base original foi preservada?
+- A base demo foi criada em output?
+- Os nomes reais foram removidos?
+- CNPJs reais foram removidos?
+- CPFs reais foram removidos?
+- E-mails reais foram removidos?
+- Telefones reais foram removidos?
+- Endereços reais foram removidos?
+- Observações livres foram sanitizadas?
+- Tabelas de log foram limpas?
+- Tabelas de anexo foram limpas, se aplicável?
+- Rowkeys foram recalculadas?
+- FKs foram validadas?
+- O aplicativo abriu corretamente com a base demo?
+- Nenhum relatório/export mostra dados reais?
+- O prospect não terá acesso ao banco?
+```
+
+---
+
+# Pasta examples/
+
+Criar uma pasta:
+
+```text
+examples/
+```
+
+Com arquivos de exemplo:
+
+```text
+examples/
+├── cliente.txt
+├── empresa.txt
+├── representante.txt
+├── produto.txt
+├── tabelapreco.txt
+└── clearTables.txt
+```
+
+Esses arquivos devem servir como modelo para a equipe manter novas entidades no futuro.
+
+---
+
+# Comentários obrigatórios no código
+
+O código Python deve ter comentários úteis nas partes de:
+
+1. Cópia segura da base original.
+2. Leitura dos arquivos de configuração.
+3. Interpretação de chaves primárias.
+4. Interpretação de FKs.
+5. Política de preservação/regeneração de chaves.
+6. Geração de dados sintéticos.
+7. Recalculo da `rowkey`.
+8. Validação de integridade.
+9. Transação e rollback.
+10. Modo dry-run.
+
+Os comentários não devem expor dados reais.
+
+---
+
+# Resultado esperado da resposta
+
+Quero que você entregue:
+
+1. Proposta de arquitetura do projeto.
+2. Estrutura de pastas.
+3. Código Python completo.
+4. `README.md` completo.
+5. Arquivos de exemplo da pasta `examples/`.
+6. Explicação das principais funções.
+7. Como executar.
+8. Como configurar entidades.
+9. Como configurar chaves.
+10. Como configurar FKs.
+11. Como configurar `rowkey`.
+12. Como configurar `clearTables.txt`.
+13. Como validar o resultado.
+14. Como validar integridade referencial.
+15. Como validar `rowkey`.
+16. Pontos de atenção sobre LGPD.
+17. Limitações técnicas.
+18. Checklist final antes da demonstração.
+
+---
+
+# Critérios de aceite
+
+O projeto será considerado adequado se:
+
+1. Localizar a base SQLite dentro da pasta `db`.
+2. Aceitar caminho customizado da base via `--db`.
+3. Criar uma cópia da base em `output`.
+4. Nunca alterar a base original.
+5. Ler dinamicamente os arquivos da pasta `arquivos_sensiveis`.
+6. Converter nomes de arquivos em nomes de tabelas usando o prefixo `tblvp`.
+7. Aceitar configuração estruturada por seções.
+8. Aceitar formato simples antigo.
+9. Validar existência de tabelas.
+10. Validar existência de colunas.
+11. Anonimizar somente os campos configurados.
+12. Limpar tabelas listadas em `clearTables.txt`.
+13. Gerar CPF válido.
+14. Gerar CNPJ válido.
+15. Gerar e-mails fictícios válidos.
+16. Gerar telefones fictícios válidos.
+17. Gerar CEPs fictícios válidos.
+18. Gerar nomes coerentes por entidade.
+19. Gerar dados determinísticos com seed.
+20. Manter consistência por registro.
+21. Preservar chaves por padrão.
+22. Permitir regeneração de chaves somente quando configurado.
+23. Criar mapa de chave antiga para chave nova quando houver regeneração.
+24. Propagar chaves regeneradas para tabelas dependentes.
+25. Atualizar FKs configuradas.
+26. Recalcular `rowkey` a partir dos campos atuais.
+27. Suportar `rowkey` com separador configurável.
+28. Suportar `rowkey` com separador final opcional.
+29. Suportar `rowkey` como coluna da própria tabela.
+30. Suportar configuração para `rowkey` em tabela separada.
+31. Usar transação.
+32. Fazer rollback em erro crítico.
+33. Gerar logs seguros.
+34. Não registrar dados reais sensíveis nos logs.
+35. Ter modo `dry-run`.
+36. Ter modo `strict`.
+37. Validar integridade referencial ao final.
+38. Validar `rowkey` ao final.
+39. Criar `README.md` completo.
+40. Criar pasta `examples/` com modelos.
+41. Ser dinâmico para novas entidades e tabelas.
+42. Ser adequado para bases diferentes que sigam o mesmo padrão de configuração.
+43. Gerar base final funcional para o aplicativo.
+
+---
+
+# Observação final
+
+A solução deve deixar evidente que mexer em chaves é uma operação crítica.
+
+Por isso:
+
+```text
+[key_policy]
+mode=preserve
+```
+
+deve ser o comportamento padrão.
+
+A regeneração de chaves deve ser tratada como exceção, e só deve acontecer quando configurada explicitamente e quando o script conseguir propagar a alteração para todas as tabelas dependentes.
+
+Para o cenário de demonstração, a prioridade é:
+
+```text
+1. preservar funcionamento técnico do aplicativo;
+2. remover dados reais visíveis;
+3. substituir dados pessoais e identificáveis por dados sintéticos;
+4. limpar logs, históricos, anexos e observações sensíveis;
+5. validar rowkeys e relacionamentos;
+6. documentar claramente os limites LGPD da ferramenta.
+```
